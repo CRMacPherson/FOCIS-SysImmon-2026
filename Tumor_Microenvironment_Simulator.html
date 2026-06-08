@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tumor Microenvironment ABM Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        canvas { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 0.5rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="text-slate-800 h-screen flex flex-col overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-slate-900 text-white shadow-md flex flex-col shrink-0 z-20">
+        <div class="p-4 flex justify-between items-center">
+            <div>
+                <h1 class="text-xl font-bold">Tumor Microenvironment Simulator</h1>
+                <p class="text-xs text-slate-400">Agent-Based Model for CD8+/Treg Interactions (based on Baras et al., 2016)</p>
+            </div>
+            <div class="flex gap-4 items-center">
+                <button id="btnToggleImage" class="text-xs text-indigo-300 hover:text-indigo-100 underline underline-offset-2 mr-2 transition-colors">Show Reference</button>
+                <span class="text-sm">Patients Generated: <strong id="patientCount" class="text-blue-400">0</strong></span>
+                <button id="btnExport" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    Download CSV
+                </button>
+            </div>
+        </div>
+        <!-- Collapsible Image Section -->
+        <div id="imageSection" class="hidden w-full bg-slate-950 border-t border-slate-800 p-4 flex flex-row gap-4 h-96">
+            <iframe src="https://docs.google.com/viewer?url=https://raw.githubusercontent.com/CRMacPherson/FOCIS-SysImmon-2026/main/Baras2016.OncoImmunology.pdf&embedded=true" class="w-1/3 h-full rounded bg-white" frameborder="0"></iframe>
+            <div class="w-2/3 h-full flex flex-col gap-2">
+                <a href="https://www.tandfonline.com/doi/full/10.1080/2162402X.2015.1134412" target="_blank" class="text-indigo-400 hover:text-indigo-300 text-sm font-semibold underline underline-offset-2 w-fit">Link to original article</a>
+                <img src="https://github.com/CRMacPherson/FOCIS-SysImmon-2026/blob/main/Gemini_Generated_Image_Baras2016.png?raw=true" alt="Reference Image" class="w-full flex-1 object-contain rounded min-h-0">
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex overflow-hidden">
+        
+        <!-- Left Sidebar: Parameters & Controls -->
+        <aside class="w-80 bg-white border-r border-slate-200 p-4 flex flex-col overflow-y-auto custom-scrollbar shrink-0">
+            
+            <!-- Mode Switcher -->
+            <div class="flex mb-4 border border-slate-300 rounded overflow-hidden shadow-sm shrink-0">
+                <button id="btnModeStandard" class="flex-1 bg-slate-800 text-white font-semibold text-xs py-2 transition-colors">Standard Mode</button>
+                <button id="btnModeMystery" class="flex-1 bg-slate-100 text-slate-500 hover:bg-slate-200 font-semibold text-xs py-2 transition-colors">Mystery Gene Mode</button>
+            </div>
+            
+            <div class="space-y-4 flex-1">
+                <!-- Common Param: Tumors -->
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <label class="block text-xs font-semibold text-slate-500">Initial Tumor Cells</label>
+                        <label class="text-[9px] font-bold text-slate-400 flex items-center gap-1 cursor-pointer" title="Randomize before run"><input type="checkbox" id="t_tumors" class="w-3 h-3"> Rnd</label>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <input type="number" id="p_tumors" value="100" class="w-full border rounded p-1 text-sm bg-amber-50 border-amber-200">
+                        <span id="sep_tumors" class="hidden text-slate-400 font-bold">-</span>
+                        <input type="number" id="p_tumors_max" value="150" class="w-full border rounded p-1 text-sm hidden bg-amber-50 border-amber-200">
+                    </div>
+                </div>
+
+                <!-- STANDARD MODE CONTAINER -->
+                <div id="containerStandard" class="space-y-4">
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="block text-[11px] font-semibold text-slate-500">CD8+ Rate</label>
+                                <label class="text-[9px] font-bold text-slate-400 flex items-center gap-1 cursor-pointer" title="Randomize before run"><input type="checkbox" id="t_cd8" class="w-3 h-3" checked> Rnd</label>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <input type="number" step="0.01" id="p_cd8" value="0.20" class="w-full border rounded p-1 text-sm border-blue-300 bg-blue-50">
+                                <span id="sep_cd8" class="text-slate-400 font-bold">-</span>
+                                <input type="number" step="0.01" id="p_cd8_max" value="1.00" class="w-full border rounded p-1 text-sm border-blue-300 bg-blue-50">
+                            </div>
+                        </div>
+                        <div>
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="block text-[11px] font-semibold text-slate-500">Treg Rate</label>
+                                <label class="text-[9px] font-bold text-slate-400 flex items-center gap-1 cursor-pointer" title="Randomize before run"><input type="checkbox" id="t_treg" class="w-3 h-3" checked> Rnd</label>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <input type="number" step="0.01" id="p_treg" value="0.10" class="w-full border rounded p-1 text-sm border-red-300 bg-red-50">
+                                <span id="sep_treg" class="text-slate-400 font-bold">-</span>
+                                <input type="number" step="0.01" id="p_treg_max" value="0.50" class="w-full border rounded p-1 text-sm border-red-300 bg-red-50">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="border-t pt-4">
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="block text-[11px] font-semibold text-slate-500" title="Probability a CD8 cell destroys a Tumor cell per frame of contact">P(Kill) per contact</label>
+                            <label class="text-[9px] font-bold text-slate-400 flex items-center gap-1 cursor-pointer" title="Randomize before run"><input type="checkbox" id="t_killProb" class="w-3 h-3"> Rnd</label>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <input type="number" step="0.01" id="p_killProb" value="0.03" class="w-full border rounded p-1 text-sm">
+                            <span id="sep_killProb" class="hidden text-slate-400 font-bold">-</span>
+                            <input type="number" step="0.01" id="p_killProb_max" value="0.10" class="w-full border rounded p-1 text-sm hidden">
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="block text-[11px] font-semibold text-slate-500" title="Probability a Treg suppresses a CD8 cell per frame of contact">P(Suppress) per contact</label>
+                            <label class="text-[9px] font-bold text-slate-400 flex items-center gap-1 cursor-pointer" title="Randomize before run"><input type="checkbox" id="t_suppressProb" class="w-3 h-3"> Rnd</label>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <input type="number" step="0.01" id="p_suppressProb" value="0.20" class="w-full border rounded p-1 text-sm">
+                            <span id="sep_suppressProb" class="hidden text-slate-400 font-bold">-</span>
+                            <input type="number" step="0.01" id="p_suppressProb_max" value="0.50" class="w-full border rounded p-1 text-sm hidden">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MYSTERY MODE CONTAINER -->
+                <div id="containerMystery" class="space-y-3 hidden border-t pt-4">
+                    <!-- Gene A -->
+                    <div class="bg-indigo-50 border border-indigo-200 p-2 rounded">
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="block text-xs font-bold text-indigo-800">Gene A</label>
+                            <select id="map_geneA" class="text-[10px] p-0.5 border border-indigo-300 rounded bg-white text-indigo-700 font-semibold cursor-pointer outline-none">
+                                <option value="cd8" selected>Map: CD8+ Rate</option>
+                                <option value="treg">Map: Treg Rate</option>
+                                <option value="kill">Map: P(Kill)</option>
+                                <option value="suppress">Map: P(Suppress)</option>
+                            </select>
+                        </div>
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="text-[10px] font-semibold text-indigo-500">Expression Range</label>
+                            <label class="text-[9px] font-bold text-indigo-400 flex items-center gap-1 cursor-pointer"><input type="checkbox" id="t_geneA" class="w-3 h-3" checked> Rnd</label>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <input type="number" step="0.01" id="p_geneA" value="0.01" class="w-full border border-indigo-200 rounded p-1 text-sm">
+                            <span id="sep_geneA" class="text-indigo-300 font-bold">-</span>
+                            <input type="number" step="0.01" id="p_geneA_max" value="0.50" class="w-full border border-indigo-200 rounded p-1 text-sm">
+                        </div>
+                    </div>
+
+                    <!-- Gene B -->
+                    <div class="bg-indigo-50 border border-indigo-200 p-2 rounded">
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="block text-xs font-bold text-indigo-800">Gene B</label>
+                            <select id="map_geneB" class="text-[10px] p-0.5 border border-indigo-300 rounded bg-white text-indigo-700 font-semibold cursor-pointer outline-none">
+                                <option value="cd8">Map: CD8+ Rate</option>
+                                <option value="treg" selected>Map: Treg Rate</option>
+                                <option value="kill">Map: P(Kill)</option>
+                                <option value="suppress">Map: P(Suppress)</option>
+                            </select>
+                        </div>
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="text-[10px] font-semibold text-indigo-500">Expression Range</label>
+                            <label class="text-[9px] font-bold text-indigo-400 flex items-center gap-1 cursor-pointer"><input type="checkbox" id="t_geneB" class="w-3 h-3" checked> Rnd</label>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <input type="number" step="0.01" id="p_geneB" value="0.01" class="w-full border border-indigo-200 rounded p-1 text-sm">
+                            <span id="sep_geneB" class="text-indigo-300 font-bold">-</span>
+                            <input type="number" step="0.01" id="p_geneB_max" value="0.50" class="w-full border border-indigo-200 rounded p-1 text-sm">
+                        </div>
+                    </div>
+
+                    <!-- Gene C -->
+                    <div class="bg-indigo-50 border border-indigo-200 p-2 rounded">
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="block text-xs font-bold text-indigo-800">Gene C</label>
+                            <select id="map_geneC" class="text-[10px] p-0.5 border border-indigo-300 rounded bg-white text-indigo-700 font-semibold cursor-pointer outline-none">
+                                <option value="cd8">Map: CD8+ Rate</option>
+                                <option value="treg">Map: Treg Rate</option>
+                                <option value="kill" selected>Map: P(Kill)</option>
+                                <option value="suppress">Map: P(Suppress)</option>
+                            </select>
+                        </div>
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="text-[10px] font-semibold text-indigo-500">Expression Range</label>
+                            <label class="text-[9px] font-bold text-indigo-400 flex items-center gap-1 cursor-pointer"><input type="checkbox" id="t_geneC" class="w-3 h-3" checked> Rnd</label>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <input type="number" step="0.01" id="p_geneC" value="0.01" class="w-full border border-indigo-200 rounded p-1 text-sm">
+                            <span id="sep_geneC" class="text-indigo-300 font-bold">-</span>
+                            <input type="number" step="0.01" id="p_geneC_max" value="0.10" class="w-full border border-indigo-200 rounded p-1 text-sm">
+                        </div>
+                    </div>
+
+                    <!-- Gene D -->
+                    <div class="bg-indigo-50 border border-indigo-200 p-2 rounded">
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="block text-xs font-bold text-indigo-800">Gene D</label>
+                            <select id="map_geneD" class="text-[10px] p-0.5 border border-indigo-300 rounded bg-white text-indigo-700 font-semibold cursor-pointer outline-none">
+                                <option value="cd8">Map: CD8+ Rate</option>
+                                <option value="treg">Map: Treg Rate</option>
+                                <option value="kill">Map: P(Kill)</option>
+                                <option value="suppress" selected>Map: P(Suppress)</option>
+                            </select>
+                        </div>
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="text-[10px] font-semibold text-indigo-500">Expression Range</label>
+                            <label class="text-[9px] font-bold text-indigo-400 flex items-center gap-1 cursor-pointer"><input type="checkbox" id="t_geneD" class="w-3 h-3" checked> Rnd</label>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <input type="number" step="0.01" id="p_geneD" value="0.10" class="w-full border border-indigo-200 rounded p-1 text-sm">
+                            <span id="sep_geneD" class="text-indigo-300 font-bold">-</span>
+                            <input type="number" step="0.01" id="p_geneD_max" value="0.60" class="w-full border border-indigo-200 rounded p-1 text-sm">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Common Params: Runtime -->
+                <div class="border-t pt-4">
+                    <div class="flex justify-between items-center mb-1">
+                        <label class="block text-[11px] font-semibold text-slate-500">Max Simulation Frames</label>
+                        <label class="text-[9px] font-bold text-slate-400 flex items-center gap-1 cursor-pointer" title="Randomize before run"><input type="checkbox" id="t_maxFrames" class="w-3 h-3"> Rnd</label>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <input type="number" id="p_maxFrames" value="800" class="w-full border rounded p-1 text-sm">
+                        <span id="sep_maxFrames" class="hidden text-slate-400 font-bold">-</span>
+                        <input type="number" id="p_maxFrames_max" value="1000" class="w-full border rounded p-1 text-sm hidden">
+                    </div>
+                </div>
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <label class="block text-[11px] font-semibold text-slate-500" title="If final tumor count is below this, patient is a Responder">Responder Threshold</label>
+                        <label class="text-[9px] font-bold text-slate-400 flex items-center gap-1 cursor-pointer" title="Randomize before run"><input type="checkbox" id="t_threshold" class="w-3 h-3"> Rnd</label>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <input type="number" id="p_threshold" value="25" class="w-full border rounded p-1 text-sm">
+                        <span id="sep_threshold" class="hidden text-slate-400 font-bold">-</span>
+                        <input type="number" id="p_threshold_max" value="50" class="w-full border rounded p-1 text-sm hidden">
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-6 flex flex-col gap-2 shrink-0">
+                <button id="btnSimSingle" class="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded text-sm font-semibold transition-colors">
+                    Run Visual Simulation
+                </button>
+                <button id="btnSimBatch" class="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded text-sm font-semibold transition-colors">
+                    Generate 100 Patients (Batch)
+                </button>
+                <button id="btnClear" class="bg-slate-200 hover:bg-slate-300 text-slate-800 px-4 py-2 rounded text-sm font-semibold transition-colors mt-2">
+                    Clear Data
+                </button>
+            </div>
+        </aside>
+
+        <!-- Right Side Content -->
+        <div class="flex-1 overflow-y-auto custom-scrollbar flex flex-col bg-slate-100">
+            <!-- Top: Canvas -->
+            <section class="flex-none shrink-0 flex flex-col items-center justify-center p-6 bg-slate-50 relative border-b border-slate-200">
+                
+                <div class="mb-4 w-[500px] flex justify-between text-sm font-semibold text-slate-600 bg-white p-3 rounded shadow-sm border border-slate-200">
+                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-amber-400 inline-block"></span> Tumors: <span id="stat_tumors">0</span></div>
+                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-blue-500 inline-block"></span> Active CD8+: <span id="stat_cd8">0</span></div>
+                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-gray-400 inline-block"></span> Suppressed: <span id="stat_suppressed">0</span></div>
+                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-red-500 inline-block"></span> Tregs: <span id="stat_tregs">0</span></div>
+                </div>
+
+                <canvas id="simCanvas" width="500" height="500"></canvas>
+                
+                <div id="simStatus" class="mt-4 text-sm font-bold text-slate-500 h-6">Ready</div>
+                
+                <!-- Progress Overlay for Batch -->
+                <div id="batchOverlay" class="absolute inset-0 bg-white/90 flex flex-col items-center justify-center hidden z-10">
+                    <div class="w-10 h-10 border-4 border-green-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                    <h3 class="text-lg font-bold text-slate-800">Simulating Cohort...</h3>
+                    <p id="batchProgress" class="text-sm text-slate-600">0 / 100</p>
+                </div>
+            </section>
+
+            <!-- Bottom: Data Table -->
+            <section class="flex-1 shrink-0 bg-white flex flex-col min-h-[300px]">
+                <h2 class="text-lg font-semibold p-4 border-b bg-slate-50 shrink-0">Generated Cohort Data</h2>
+                <div class="flex-1 overflow-y-auto custom-scrollbar">
+                    <table class="w-full text-xs text-left">
+                        <thead class="text-slate-500 bg-slate-100 sticky top-0" id="tableHeaderRow">
+                            <tr>
+                                <th class="px-3 py-2">ID</th>
+                                <th class="px-3 py-2">CD8/Treg Rate</th>
+                                <th class="px-3 py-2">Ratio</th>
+                                <th class="px-3 py-2">Final Tumors</th>
+                                <th class="px-3 py-2">Response</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dataTableBody" class="divide-y divide-slate-100">
+                            <!-- Rows go here -->
+                        </tbody>
+                    </table>
+                    <div id="emptyState" class="p-6 text-center text-slate-400">
+                        No patient data generated yet.
+                    </div>
+                </div>
+            </section>
+        </div>
+
+    </main>
+
+    <script>
+        // --- DOM Elements ---
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        const ui = {
+            tumors: document.getElementById('p_tumors'),
+            cd8: document.getElementById('p_cd8'),
+            treg: document.getElementById('p_treg'),
+            killProb: document.getElementById('p_killProb'),
+            suppressProb: document.getElementById('p_suppressProb'),
+            maxFrames: document.getElementById('p_maxFrames'),
+            threshold: document.getElementById('p_threshold'),
+            
+            tumors_max: document.getElementById('p_tumors_max'),
+            cd8_max: document.getElementById('p_cd8_max'),
+            treg_max: document.getElementById('p_treg_max'),
+            killProb_max: document.getElementById('p_killProb_max'),
+            suppressProb_max: document.getElementById('p_suppressProb_max'),
+            maxFrames_max: document.getElementById('p_maxFrames_max'),
+            threshold_max: document.getElementById('p_threshold_max'),
+
+            sep_tumors: document.getElementById('sep_tumors'),
+            sep_cd8: document.getElementById('sep_cd8'),
+            sep_treg: document.getElementById('sep_treg'),
+            sep_killProb: document.getElementById('sep_killProb'),
+            sep_suppressProb: document.getElementById('sep_suppressProb'),
+            sep_maxFrames: document.getElementById('sep_maxFrames'),
+            sep_threshold: document.getElementById('sep_threshold'),
+
+            t_tumors: document.getElementById('t_tumors'),
+            t_cd8: document.getElementById('t_cd8'),
+            t_treg: document.getElementById('t_treg'),
+            t_killProb: document.getElementById('t_killProb'),
+            t_suppressProb: document.getElementById('t_suppressProb'),
+            t_maxFrames: document.getElementById('t_maxFrames'),
+            t_threshold: document.getElementById('t_threshold'),
+
+            // Mystery Genes
+            geneA: document.getElementById('p_geneA'), geneA_max: document.getElementById('p_geneA_max'), t_geneA: document.getElementById('t_geneA'), sep_geneA: document.getElementById('sep_geneA'), map_geneA: document.getElementById('map_geneA'),
+            geneB: document.getElementById('p_geneB'), geneB_max: document.getElementById('p_geneB_max'), t_geneB: document.getElementById('t_geneB'), sep_geneB: document.getElementById('sep_geneB'), map_geneB: document.getElementById('map_geneB'),
+            geneC: document.getElementById('p_geneC'), geneC_max: document.getElementById('p_geneC_max'), t_geneC: document.getElementById('t_geneC'), sep_geneC: document.getElementById('sep_geneC'), map_geneC: document.getElementById('map_geneC'),
+            geneD: document.getElementById('p_geneD'), geneD_max: document.getElementById('p_geneD_max'), t_geneD: document.getElementById('t_geneD'), sep_geneD: document.getElementById('sep_geneD'), map_geneD: document.getElementById('map_geneD'),
+
+            statTumors: document.getElementById('stat_tumors'),
+            statCd8: document.getElementById('stat_cd8'),
+            statSuppressed: document.getElementById('stat_suppressed'),
+            statTregs: document.getElementById('stat_tregs'),
+            status: document.getElementById('simStatus'),
+            
+            btnModeStandard: document.getElementById('btnModeStandard'),
+            btnModeMystery: document.getElementById('btnModeMystery'),
+            containerStandard: document.getElementById('containerStandard'),
+            containerMystery: document.getElementById('containerMystery'),
+
+            btnToggleImage: document.getElementById('btnToggleImage'),
+            imageSection: document.getElementById('imageSection'),
+
+            btnSimSingle: document.getElementById('btnSimSingle'),
+            btnSimBatch: document.getElementById('btnSimBatch'),
+            btnClear: document.getElementById('btnClear'),
+            btnExport: document.getElementById('btnExport'),
+            patientCount: document.getElementById('patientCount'),
+            tableHeaderRow: document.getElementById('tableHeaderRow'),
+            dataTableBody: document.getElementById('dataTableBody'),
+            emptyState: document.getElementById('emptyState'),
+            batchOverlay: document.getElementById('batchOverlay'),
+            batchProgress: document.getElementById('batchProgress')
+        };
+
+        // UI Initialization for Min-Max Toggles
+        ['tumors', 'cd8', 'treg', 'killProb', 'suppressProb', 'maxFrames', 'threshold', 'geneA', 'geneB', 'geneC', 'geneD'].forEach(id => {
+            const toggle = ui[`t_${id}`];
+            const maxInput = ui[`${id}_max`];
+            const sep = ui[`sep_${id}`];
+            
+            function updateVisibility() {
+                if (toggle.checked) {
+                    maxInput.classList.remove('hidden');
+                    sep.classList.remove('hidden');
+                } else {
+                    maxInput.classList.add('hidden');
+                    sep.classList.add('hidden');
+                }
+            }
+            toggle.addEventListener('change', updateVisibility);
+            updateVisibility(); 
+        });
+
+        // --- Data State ---
+        let patientsData = [];
+        let isSimulating = false;
+        let animationId = null;
+        let patientIdCounter = 1;
+        let isMysteryMode = false;
+
+        // Mode Toggling Logic
+        function setMode(mode) {
+            isMysteryMode = (mode === 'mystery');
+            if (isMysteryMode) {
+                ui.btnModeMystery.classList.replace('bg-slate-100', 'bg-slate-800');
+                ui.btnModeMystery.classList.replace('text-slate-500', 'text-white');
+                ui.btnModeStandard.classList.replace('bg-slate-800', 'bg-slate-100');
+                ui.btnModeStandard.classList.replace('text-white', 'text-slate-500');
+                ui.containerStandard.classList.add('hidden');
+                ui.containerMystery.classList.remove('hidden');
+                
+                ui.tableHeaderRow.innerHTML = `
+                    <tr>
+                        <th class="px-3 py-2">ID</th>
+                        <th class="px-3 py-2 text-indigo-700">Gene A</th>
+                        <th class="px-3 py-2 text-indigo-700">Gene B</th>
+                        <th class="px-3 py-2 text-indigo-700">Gene C</th>
+                        <th class="px-3 py-2 text-indigo-700">Gene D</th>
+                        <th class="px-3 py-2">Final Tumors</th>
+                        <th class="px-3 py-2">Response</th>
+                    </tr>
+                `;
+            } else {
+                ui.btnModeStandard.classList.replace('bg-slate-100', 'bg-slate-800');
+                ui.btnModeStandard.classList.replace('text-slate-500', 'text-white');
+                ui.btnModeMystery.classList.replace('bg-slate-800', 'bg-slate-100');
+                ui.btnModeMystery.classList.replace('text-white', 'text-slate-500');
+                ui.containerMystery.classList.add('hidden');
+                ui.containerStandard.classList.remove('hidden');
+                
+                ui.tableHeaderRow.innerHTML = `
+                    <tr>
+                        <th class="px-3 py-2">ID</th>
+                        <th class="px-3 py-2">CD8/Treg Rate</th>
+                        <th class="px-3 py-2">Ratio</th>
+                        <th class="px-3 py-2">Final Tumors</th>
+                        <th class="px-3 py-2">Response</th>
+                    </tr>
+                `;
+            }
+            ui.btnClear.click(); // Clear data to avoid mixing mode outputs
+        }
+
+        ui.btnModeStandard.addEventListener('click', () => setMode('standard'));
+        ui.btnModeMystery.addEventListener('click', () => setMode('mystery'));
+
+        ui.btnToggleImage.addEventListener('click', () => {
+            const isHidden = ui.imageSection.classList.contains('hidden');
+            if (isHidden) {
+                ui.imageSection.classList.remove('hidden');
+                ui.btnToggleImage.innerText = 'Hide Reference';
+            } else {
+                ui.imageSection.classList.add('hidden');
+                ui.btnToggleImage.innerText = 'Show Reference';
+            }
+        });
+
+        // --- Simulation Classes ---
+        class Agent {
+            constructor(type, x, y) {
+                this.type = type; 
+                this.x = x;
+                this.y = y;
+                this.active = true; 
+                
+                this.radius = type === 'tumor' ? 8 : 5;
+                this.phase1 = Math.random() * Math.PI * 2;
+                this.phase2 = Math.random() * Math.PI * 2;
+                this.nucOffsetX = (Math.random() - 0.5) * this.radius * 0.4;
+                this.nucOffsetY = (Math.random() - 0.5) * this.radius * 0.4;
+                
+                if (type === 'tumor') {
+                    this.vx = 0; this.vy = 0;
+                } else {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = 1.0 + Math.random() * 1.0; 
+                    this.vx = Math.cos(angle) * speed;
+                    this.vy = Math.sin(angle) * speed;
+                }
+            }
+
+            move(width, height) {
+                if (this.type === 'tumor') return; 
+                
+                this.vx += (Math.random() - 0.5) * 0.3;
+                this.vy += (Math.random() - 0.5) * 0.3;
+                
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                const maxSpeed = 2.5;
+                if (speed > maxSpeed) {
+                    this.vx = (this.vx / speed) * maxSpeed;
+                    this.vy = (this.vy / speed) * maxSpeed;
+                }
+
+                this.x += this.vx;
+                this.y += this.vy;
+
+                if (this.x < this.radius) { this.x = this.radius; this.vx *= -1; }
+                if (this.x > width - this.radius) { this.x = width - this.radius; this.vx *= -1; }
+                if (this.y < this.radius) { this.y = this.radius; this.vy *= -1; }
+                if (this.y > height - this.radius) { this.y = height - this.radius; this.vy *= -1; }
+                
+                this.phase1 += 0.05;
+                this.phase2 += 0.03;
+            }
+
+            draw(ctx) {
+                let fillColor, strokeColor, nucleusColor;
+                let perturbFactor;
+
+                if (this.type === 'tumor') {
+                    fillColor = '#fde68a'; 
+                    strokeColor = '#d97706';
+                    nucleusColor = '#b45309';
+                    perturbFactor = 0.20; 
+                } else if (this.type === 'cd8') {
+                    perturbFactor = 0.08; 
+                    if (this.active) {
+                        fillColor = '#bfdbfe'; 
+                        strokeColor = '#2563eb';
+                        nucleusColor = '#1d4ed8';
+                    } else {
+                        fillColor = '#e5e7eb';
+                        strokeColor = '#6b7280';
+                        nucleusColor = '#4b5563';
+                    }
+                } else if (this.type === 'treg') {
+                    fillColor = '#fecaca';
+                    strokeColor = '#dc2626';
+                    nucleusColor = '#b91c1c';
+                    perturbFactor = 0.08;
+                }
+
+                ctx.fillStyle = fillColor;
+                ctx.strokeStyle = strokeColor;
+                ctx.lineWidth = 1.5;
+
+                ctx.beginPath();
+                const segments = 20;
+                for (let i = 0; i <= segments; i++) {
+                    const angle = (i / segments) * Math.PI * 2;
+                    const perturb = Math.sin(angle * 3 + this.phase1) * perturbFactor + 
+                                    Math.cos(angle * 2 + this.phase2) * perturbFactor;
+                    const r = this.radius * (1 + perturb);
+                    const px = this.x + Math.cos(angle) * r;
+                    const py = this.y + Math.sin(angle) * r;
+                    
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = nucleusColor;
+                ctx.beginPath();
+                const nucRadius = this.type === 'tumor' ? this.radius * 0.45 : this.radius * 0.65;
+                ctx.arc(this.x + this.nucOffsetX, this.y + this.nucOffsetY, nucRadius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        class Simulation {
+            constructor(params) {
+                this.width = canvas.width;
+                this.height = canvas.height;
+                this.params = params;
+                this.frames = 0;
+                
+                this.tumors = [];
+                this.cd8s = [];
+                this.tregs = [];
+
+                this.cd8Accum = 0;
+                this.tregAccum = 0;
+
+                for(let i=0; i<params.numTumors; i++) this.tumors.push(new Agent('tumor', Math.random()*this.width, Math.random()*this.height));
+            }
+
+            step() {
+                this.cd8Accum += this.params.cd8Rate;
+                while (this.cd8Accum >= 1) {
+                    this.cd8s.push(new Agent('cd8', Math.random() * this.width, Math.random() * this.height));
+                    this.cd8Accum -= 1;
+                }
+
+                this.tregAccum += this.params.tregRate;
+                while (this.tregAccum >= 1) {
+                    this.tregs.push(new Agent('treg', Math.random() * this.width, Math.random() * this.height));
+                    this.tregAccum -= 1;
+                }
+
+                this.cd8s.forEach(a => a.move(this.width, this.height));
+                this.tregs.forEach(a => a.move(this.width, this.height));
+
+                // 1. CD8 vs Tumors
+                for (let i = this.tumors.length - 1; i >= 0; i--) {
+                    const tumor = this.tumors[i];
+                    for (let j = 0; j < this.cd8s.length; j++) {
+                        const cd8 = this.cd8s[j];
+                        if (cd8.active) {
+                            const dx = tumor.x - cd8.x;
+                            const dy = tumor.y - cd8.y;
+                            const distSq = dx*dx + dy*dy;
+                            const interactionDistSq = (tumor.radius + cd8.radius) * (tumor.radius + cd8.radius);
+                            if (distSq <= interactionDistSq) {
+                                if (Math.random() < this.params.pKill) {
+                                    this.tumors.splice(i, 1); 
+                                    break; 
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 2. Tregs vs CD8s
+                for (let i = 0; i < this.cd8s.length; i++) {
+                    const cd8 = this.cd8s[i];
+                    if (cd8.active) {
+                        for (let j = 0; j < this.tregs.length; j++) {
+                            const treg = this.tregs[j];
+                            const dx = cd8.x - treg.x;
+                            const dy = cd8.y - treg.y;
+                            const distSq = dx*dx + dy*dy;
+                            const interactionDistSq = (cd8.radius + treg.radius) * (cd8.radius + treg.radius);
+                            if (distSq <= interactionDistSq) {
+                                if (Math.random() < this.params.pSuppress) {
+                                    cd8.active = false; 
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                this.frames++;
+                return this.frames >= this.params.maxFrames || this.tumors.length === 0;
+            }
+
+            draw() {
+                ctx.clearRect(0, 0, this.width, this.height);
+                this.tumors.forEach(a => a.draw(ctx));
+                this.cd8s.forEach(a => a.draw(ctx));
+                this.tregs.forEach(a => a.draw(ctx));
+            }
+
+            getStats() {
+                const activeCd8 = this.cd8s.filter(a => a.active).length;
+                return {
+                    tumors: this.tumors.length,
+                    activeCd8: activeCd8,
+                    suppressedCd8: this.cd8s.length - activeCd8,
+                    tregs: this.tregs.length
+                };
+            }
+        }
+
+        // --- Core Logic ---
+
+        function getRandVal(baseId, isFloat) {
+            const minInput = ui[baseId];
+            const maxInput = ui[`${baseId}_max`];
+            const isRnd = ui[`t_${baseId}`].checked;
+            
+            let min = isFloat ? parseFloat(minInput.value) : parseInt(minInput.value);
+            if (!isRnd) return min;
+
+            let max = isFloat ? parseFloat(maxInput.value) : parseInt(maxInput.value);
+            if (min > max) { let temp = min; min = max; max = temp; } // Swap to safeguard
+
+            if (isFloat) {
+                return min + Math.random() * (max - min);
+            } else {
+                return Math.floor(min + Math.random() * (max - min + 1));
+            }
+        }
+
+        function getParams() {
+            let params = {
+                numTumors: getRandVal('tumors', false),
+                maxFrames: getRandVal('maxFrames', false),
+                threshold: getRandVal('threshold', false),
+                isMystery: isMysteryMode
+            };
+
+            if (isMysteryMode) {
+                const genes = {
+                    A: getRandVal('geneA', true),
+                    B: getRandVal('geneB', true),
+                    C: getRandVal('geneC', true),
+                    D: getRandVal('geneD', true)
+                };
+                params.genes = genes;
+                
+                // Initialize defaults
+                params.cd8Rate = 0; params.tregRate = 0; params.pKill = 0; params.pSuppress = 0;
+                
+                // Map genes based on dropdown selections
+                const maps = {
+                    A: ui.map_geneA.value,
+                    B: ui.map_geneB.value,
+                    C: ui.map_geneC.value,
+                    D: ui.map_geneD.value
+                };
+
+                for (let g of ['A', 'B', 'C', 'D']) {
+                    if (maps[g] === 'cd8') params.cd8Rate = genes[g];
+                    if (maps[g] === 'treg') params.tregRate = genes[g];
+                    if (maps[g] === 'kill') params.pKill = genes[g];
+                    if (maps[g] === 'suppress') params.pSuppress = genes[g];
+                }
+            } else {
+                params.cd8Rate = getRandVal('cd8', true);
+                params.tregRate = getRandVal('treg', true);
+                params.pKill = getRandVal('killProb', true);
+                params.pSuppress = getRandVal('suppressProb', true);
+            }
+
+            return params;
+        }
+
+        function updateUIStats(stats) {
+            ui.statTumors.innerText = stats.tumors;
+            ui.statCd8.innerText = stats.activeCd8;
+            ui.statSuppressed.innerText = stats.suppressedCd8;
+            ui.statTregs.innerText = stats.tregs;
+        }
+
+        function addPatientRecord(params, finalTumors) {
+            const isResponder = finalTumors <= params.threshold;
+            let record = {
+                id: `PT-${String(patientIdCounter).padStart(4, '0')}`,
+                tumors: params.numTumors,
+                maxFrames: params.maxFrames,
+                threshold: params.threshold,
+                finalTumors: finalTumors,
+                responder: isResponder ? 1 : 0,
+                isMystery: params.isMystery
+            };
+
+            if (params.isMystery) {
+                record.genes = params.genes;
+            } else {
+                const ratio = params.tregRate === 0 ? params.cd8Rate.toFixed(2) : (params.cd8Rate / params.tregRate).toFixed(2);
+                record.cd8Rate = params.cd8Rate.toFixed(2);
+                record.tregRate = params.tregRate.toFixed(2);
+                record.pKill = params.pKill;
+                record.pSuppress = params.pSuppress;
+                record.ratio = ratio;
+            }
+            
+            patientsData.push(record);
+            patientIdCounter++;
+            updateTable();
+            
+            return record;
+        }
+
+        function updateTable() {
+            ui.patientCount.innerText = patientsData.length;
+            ui.btnExport.disabled = patientsData.length === 0;
+            
+            if (patientsData.length > 0) ui.emptyState.style.display = 'none';
+            else ui.emptyState.style.display = 'block';
+
+            const displayData = patientsData.slice(-100).reverse();
+            
+            ui.dataTableBody.innerHTML = displayData.map(r => {
+                let colHTML = '';
+                if (r.isMystery) {
+                    colHTML = `
+                        <td class="px-3 py-2 text-indigo-700 font-mono">${r.genes.A.toFixed(2)}</td>
+                        <td class="px-3 py-2 text-indigo-700 font-mono">${r.genes.B.toFixed(2)}</td>
+                        <td class="px-3 py-2 text-indigo-700 font-mono">${r.genes.C.toFixed(2)}</td>
+                        <td class="px-3 py-2 text-indigo-700 font-mono">${r.genes.D.toFixed(2)}</td>
+                    `;
+                } else {
+                    colHTML = `
+                        <td class="px-3 py-2">${r.cd8Rate} / ${r.tregRate}</td>
+                        <td class="px-3 py-2">${r.ratio}</td>
+                    `;
+                }
+
+                return `
+                    <tr class="hover:bg-slate-50 transition-colors">
+                        <td class="px-3 py-2 font-mono text-slate-600">${r.id}</td>
+                        ${colHTML}
+                        <td class="px-3 py-2 font-bold ${r.finalTumors <= r.threshold ? 'text-green-600' : 'text-slate-800'}">${r.finalTumors}</td>
+                        <td class="px-3 py-2">
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${r.responder ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-600'}">
+                                ${r.responder ? 'Response' : 'No Response'}
+                            </span>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function runVisualSimulation() {
+            if (isSimulating) return;
+            isSimulating = true;
+            ui.status.innerText = "Simulating...";
+            ui.status.className = "mt-4 text-sm font-bold text-blue-500 h-6";
+            
+            const params = getParams();
+            const sim = new Simulation(params);
+            
+            function loop() {
+                const isDone = sim.step();
+                sim.draw();
+                
+                if (sim.frames % 5 === 0 || isDone) {
+                    updateUIStats(sim.getStats());
+                }
+
+                if (!isDone) {
+                    animationId = requestAnimationFrame(loop);
+                } else {
+                    isSimulating = false;
+                    const finalStats = sim.getStats();
+                    const record = addPatientRecord(params, finalStats.tumors);
+                    ui.status.innerText = `Done. (Responder: ${record.responder ? 'Yes' : 'No'})`;
+                    ui.status.className = `mt-4 text-sm font-bold h-6 ${record.responder ? 'text-green-600' : 'text-slate-500'}`;
+                }
+            }
+            loop();
+        }
+
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+        async function runBatchSimulation() {
+            if (isSimulating) return;
+            isSimulating = true;
+            ui.batchOverlay.classList.remove('hidden');
+            
+            const totalPatients = 100;
+
+            for (let p = 0; p < totalPatients; p++) {
+                const currentParams = getParams();
+                const sim = new Simulation(currentParams);
+                let isDone = false;
+                
+                while (!isDone) {
+                    isDone = sim.step();
+                }
+
+                addPatientRecord(currentParams, sim.tumors.length);
+                
+                ui.batchProgress.innerText = `${p + 1} / ${totalPatients}`;
+                if (p % 5 === 0) await sleep(0); 
+            }
+
+            ui.batchOverlay.classList.add('hidden');
+            isSimulating = false;
+            
+            const finalSim = new Simulation(getParams());
+            finalSim.draw();
+            ui.status.innerText = "Batch Generation Complete.";
+            ui.status.className = "mt-4 text-sm font-bold text-green-600 h-6";
+        }
+
+        function exportCSV() {
+            if (patientsData.length === 0) return;
+            
+            let headers, rows;
+            if (isMysteryMode) {
+                headers = ['PatientID', 'Gene_A_Expression', 'Gene_B_Expression', 'Gene_C_Expression', 'Gene_D_Expression', 'Final_Tumors', 'Clinical_Response'];
+                rows = patientsData.map(r => `${r.id},${r.genes.A.toFixed(4)},${r.genes.B.toFixed(4)},${r.genes.C.toFixed(4)},${r.genes.D.toFixed(4)},${r.finalTumors},${r.responder}`);
+            } else {
+                headers = ['PatientID', 'Initial_Tumors', 'CD8_Rate', 'Treg_Rate', 'CD8_Treg_Rate_Ratio', 'P_Kill', 'P_Suppress', 'Max_Frames', 'Threshold', 'Final_Tumors', 'Clinical_Response'];
+                rows = patientsData.map(r => `${r.id},${r.tumors},${r.cd8Rate},${r.tregRate},${r.ratio},${r.pKill},${r.pSuppress},${r.maxFrames},${r.threshold},${r.finalTumors},${r.responder}`);
+            }
+            
+            const csvContent = [headers.join(','), ...rows].join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", isMysteryMode ? "synthetic_omics_cohort_mystery.csv" : "synthetic_omics_cohort.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // --- Event Listeners ---
+        ui.btnSimSingle.addEventListener('click', runVisualSimulation);
+        ui.btnSimBatch.addEventListener('click', runBatchSimulation);
+        ui.btnExport.addEventListener('click', exportCSV);
+        ui.btnClear.addEventListener('click', () => {
+            patientsData = [];
+            patientIdCounter = 1;
+            updateTable();
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            updateUIStats({ tumors: 0, activeCd8: 0, suppressedCd8: 0, tregs: 0 });
+            ui.status.innerText = "Ready";
+        });
+
+        // Initialize empty canvas
+        const initSim = new Simulation(getParams());
+        initSim.draw();
+        updateUIStats(initSim.getStats());
+
+    </script>
+</body>
+</html>
